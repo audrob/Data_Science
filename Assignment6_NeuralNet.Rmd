@@ -1,0 +1,128 @@
+---
+title: "Artificial Neural Networks"
+author: "Audrey Robertson"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Read in Data
+
+```{r cancer}
+# Load pacman for lib management
+library(pacman)
+# Recommended packages
+p_load(ggplot2, readr, neuralnet, nnet)
+
+# Read in and set up data
+
+## Get home working directory
+home <- Sys.getenv("HOME")
+
+## Find and read in cancer data file
+df_original <- read.csv(file = paste0(home, "/Data/cancer.csv"),
+                 stringsAsFactors = F)
+
+drops <- c("id", "diagnosis", "X")
+df <- df_original[, !names(df_original) %in% drops]
+
+## View data structure
+str(df) 
+dim(df) # 569 obs, 30 vars
+
+# Check for missing values
+sapply(df, function(x) sum(is.na(x))) # $ NA = 0 for all cols
+
+```
+# Standardization
+
+```{r standard}
+# Max and Min for scaling
+maxs = apply(df, 2, max)
+mins = apply(df, 2, min)
+
+# Save scaled data to the df
+df <- as.data.frame(scale(df, center = mins, scale = maxs-mins))
+```
+
+# Split the Data
+
+```{r split}
+# Split the data into test and train
+smp_size <- floor(2/3*nrow(df))
+
+set.seed(211)
+train_ind <- sample(seq_len(nrow(df)), size=smp_size)
+
+train <- df[train_ind,]
+train$diagnosis <- df_original[train_ind, "diagnosis"]
+test <- df[-train_ind,]
+```
+
+# Fit the Neural Network (NN)
+
+```{r nnet}
+# Using the "nnet" package
+
+# Recode diagnosis to 0 (B=0) and 1 (M=1) for nnet()
+p_load(dplyr) # Data management package
+
+train_b <- train %>%
+  mutate(diagnosis = if_else(diagnosis=="M", 1, 0))
+
+df_original_b <- df_original %>%
+  mutate(diagnosis = if_else(diagnosis=="M", 1, 0))
+
+# Create NN model
+NN <- nnet(diagnosis ~ . ,
+           data=train_b,
+           size=10, 
+           na.action=na.omit
+           );
+
+result1 <- predict(NN, 
+                   test,
+                   type=c("raw")
+                   )
+
+accuracy <- sum(result1 == df_original_b[-train_ind, "diagnosis"])/nrow(test)
+accuracy
+
+
+```
+
+```{r neuralnet}
+# Using the "neuralnet" package
+
+# Binary Classification where "M" is of interest over "B"
+NN2 <- neuralnet(diagnosis == "M" ~ .,
+           data=train,
+           hidden=10)
+
+result2 <- predict(NN2, test)
+
+# Predict using the probs
+pred2 <- rep("B", 190)
+pred2[result2[,1] > .5] = "M"
+
+accuracy2 <- sum(pred2 == df_original[-train_ind, "diagnosis"])/nrow(test)
+accuracy2
+
+table(df_original[-train_ind, "diagnosis"] == "M", result2[, 1] > 0.5)
+
+# Multiclass, predicting "M" and "B"
+NN3 <- neuralnet((diagnosis == "M") + (diagnosis == "B") ~ .,
+           data=train,
+           hidden=10)
+
+# Predict
+pred3 <- predict(NN3, test)
+
+table(df_original[-train_ind, "diagnosis"], apply(pred3, 1, which.max))
+```
+
+The NN accurately predicts cancer most of the time.
+

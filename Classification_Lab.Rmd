@@ -1,0 +1,388 @@
+---
+title: "Classification Lab"
+author: "Audrey Robertson"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Stock Market Data
+
+```{r data}
+
+# Enable pacman for any needed packages
+library(pacman)
+
+# Enable ISLR2 library for Smarket data from the textbook
+p_load(ISLR2)
+
+# Look at Smarket data
+names(Smarket)
+dim(Smarket)
+summary(Smarket)
+
+# Correlation matrix
+# cor(Smarket) # Direction is non-numeric
+cor(Smarket[,-9]) # Remove Direction
+
+# Correlation between Year and Volume is high... plot it
+attach(Smarket)
+plot(Volume)
+```
+
+# Logistic Regression
+
+## Model 1: logistic regression with all predictors of interest.
+
+```{r model 1}
+
+# Use general linear model glm()
+glm.fits <- glm(Direction ~ Lag1 + Lag2 + Lag3 + Lag4 + Lag5 + Volume, data=Smarket, family=binomial)
+
+summary(glm.fits)
+
+# Assess just the coefficients
+coef(glm.fits)
+## Another method
+summary(glm.fits)$coef
+## Only view p-values of coeffs
+summary(glm.fits)$coef[,4]
+
+```
+
+```{r predict 1}
+
+# Predict P(Y=1|X) for market direction
+glm.probs <- predict(glm.fits, type="response")
+glm.probs[1:10]
+
+# Class labels
+contrasts(Direction)
+
+## Create vector of class predictions 
+## Based on probability of increase > or < 0.5
+glm.pred <- rep("Down", 1250)
+glm.pred[glm.probs > .5] = "Up"
+
+# Confusion matrix to see how many were incorrectly classified.
+
+table(glm.pred, Direction)
+(507 + 145) / 1250 # 0.5216 
+
+mean(glm.pred == Direction) # 0.5216
+```
+The logistic regression model correctly predicted the movement of the market $52.2%$ of the time. Therefore, the training error rate is the converse: $47.8%$.
+
+## Model 2: logistic model trained with data before 2005
+
+```{r model 2}
+
+# Train with years 2001-2004
+train <- (Year < 2005)
+
+Smarket.2005 <- Smarket[!train,]
+dim(Smarket.2005) # 252 observations in 2005
+Direction.2005 <- Direction[!train]
+
+# Fit a logit model using the training set
+glm.fits <- glm(Direction ~ Lag1 + Lag2 + Lag3 + Lag4 + Lag5 + Volume, data = Smarket, family = binomial, subset=train)
+
+glm.probs <- predict(glm.fits, Smarket.2005, type="response")
+
+# Predict using this model
+glm.pred <- rep("Down", 252)
+glm.pred[glm.probs > 0.5] <- "Up"
+
+# Confusion matrix to see how many were incorrectly classified.
+table(glm.pred, Direction.2005)
+
+## % classified correctly
+mean(glm.pred == Direction.2005) # 0.4801587
+
+## Testing error rate
+mean(glm.pred != Direction.2005) # 0.5198413
+
+
+```
+The trained logistic regression model correctly predicted the movement of the market $52.2%$ of the time. Therefore, the training error rate is the converse: $47.8%$.
+
+
+## Model 3: reducing the previous model
+
+```{r model 3}
+
+# Model using Lag1 and Lag2 as predictors because they seem to have the highest predictive power
+
+# Fit a logit model using the training set
+glm.fits <- glm(Direction ~ Lag1 + Lag2, data = Smarket, family = binomial, subset=train)
+
+glm.probs <- predict(glm.fits, Smarket.2005, type="response")
+
+# Predict using this model
+glm.pred <- rep("Down", 252)
+glm.pred[glm.probs > 0.5] <- "Up"
+
+# Confusion matrix to see how many were incorrectly classified.
+table(glm.pred, Direction.2005)
+
+## % classified correctly
+mean(glm.pred == Direction.2005) # 0.4801587
+
+## Testing error rate
+mean(glm.pred != Direction.2005) # 0.5198413
+
+# Use this model to predict
+predict(glm.fits, 
+        newdata = data.frame(Lag1 = c(1.2,1.5),
+                             Lag2 = c(1.1, -0.8)),
+        type="response")
+
+```
+# Linear Discriminant Analysis (LDA)
+
+```{r LDA}
+
+# Enable MASS library for the MASS::lda() function
+p_load(MASS)
+
+# Fit lda (identitcal to lm() and glm() but no family option)
+lda.fit <- lda(Direction ~ Lag1 + Lag2, data = Smarket,
+               subset = train)
+lda.fit
+```
+$42.9%$ of the training observations correspond to the days during which the market went down and $50.8%$ of the training observations correspond to the dats during which the market went up.
+
+```{r LDA 2}
+# Predict using the LDA model
+lda.pred <- predict(lda.fit, Smarket.2005)
+names(lda.pred)
+
+# Create crosstable for classes
+lda.class <- lda.pred$class
+table(lda.class, Direction.2005)
+mean(lda.class == Direction.2005)
+# Correctly classified 55.95% of the time
+
+# Apply 50% threshold to posterior probs. (recreate predictions)
+sum(lda.pred$posterior[,1] >= 0.5)
+sum(lda.pred$posterior[,1] < 0.5)
+
+# posterior --> prob that market will decrease
+lda.pred$posterior[1:20,1]
+lda.class[1:20]
+
+# Threshold of 90% (we are certain that market will decrease that day)
+sum(lda.pred$posterior[,1] > 0.9)
+## No days meet the threshold. Greatest posterior prob of decrease = 52.02%
+```
+The LDA predictions are accurate 55.95% of the time.
+
+# Quadratic Discriminant Analysis (QDA)
+
+```{r QDA}
+
+# Fit QDA model with MASS::qda()
+qda.fit <- qda(Direction ~ Lag1 + Lag2,
+               data=Smarket, subset=train)
+qda.fit 
+
+# Predict using the QDA fit
+qda.class <- predict(qda.fit, Smarket.2005)$class
+
+# Create crosstable for classes
+table(qda.class, Direction.2005)
+mean(qda.class==Direction.2005)
+# Correctly classified 59.92% of the time
+```
+The QDA predictions are accurate $59.92%$ of the time. This suggests that the quadratic form assumed by the QDA model may more accurately capture the true relationship than the LDA model. This is impressive level of accuracy in the realm of stock market data. This method's performance should be tested on a larger test set.
+
+
+# Naive Bayes
+
+```{r NB}
+
+# Enable e1071 
+p_load(e1071)
+
+# Fit N.B. model with e1071::naiveBayes()
+nb.fit <- naiveBayes(Direction ~ Lag1 + Lag2, data=Smarket, subset=train)
+nb.fit
+
+# Verify output
+mean(Lag1[train][Direction[train] == "Down"])
+sd(Lag1[train][Direction[train] == "Down"])
+
+# Predict 
+nb.class <- predict(nb.fit, Smarket.2005)
+table(nb.class, Direction.2005)
+mean(nb.class == Direction.2005)
+
+# Probability estimates
+nb.preds <- predict(nb.fit, Smarket.2005, type="raw")
+nb.preds[1:5,]
+```
+Naive Bayes are accurately predicted $59.13%$ of the time. This model performs better than LDA, but not as good as QDA.
+
+
+# K-Nearest Neighbors
+
+## Smarket Data
+
+```{r KNN}
+
+# Enable class
+p_load(class)
+
+# Split data into test and train
+train.X <- cbind(Lag1, Lag2)[train,]
+test.X <- cbind(Lag1, Lag2)[!train,]
+train.Direction <- Direction[train]
+
+# Use class::KNN() to Predict with KNN.
+set.seed(1) # For reproducibility
+knn.pred <- knn(train.X, test.X, train.Direction, k=1)
+table(knn.pred, Direction.2005)
+
+# Predict for k=3
+knn.pred <- knn(train.X, test.X, train.Direction, k=3)
+table(knn.pred, Direction.2005)
+mean(knn.pred == Direction.2005)
+## This improved prediction
+```
+KNN accurately predicted $53.57%$ of the time. This model doe not perform well on this data.
+
+
+## Caravan Data
+
+```{r Caravan}
+
+# Take a look at the data
+dim(Caravan)
+attach(Caravan)
+summary(Purchase)
+348/5822
+
+# Standardize data to account for different scales. KNN is affected by this a lot.
+standardized.X <- scale(Caravan[,-86])
+var(Caravan[,1])
+var(Caravan[,2])
+var(standardized.X[,1])
+var(standardized.X[,2])
+```
+```{r KNN 2}
+
+# Split data into test and train
+test <- 1:1000
+train.X <- standardized.X[-test,]
+test.X <- standardized.X[test,]
+train.Y <- Purchase[-test]
+test.Y <- Purchase[test]
+
+# Predict using KNN for k=1
+set.seed(1) # For reproducibility
+knn.pred <- knn(train.X, test.X, train.Y, k=1)
+mean(test.Y != knn.pred) # Error Rate = 11.8%
+mean(test.Y != "No") # Error rate reduced to 5.9% by predicting on "No"
+table(knn.pred, test.Y)
+9/(68+9)
+
+# Predict using KNN for k=3
+knn.pred <- knn(train.X, test.X, train.Y, k=3)
+table(knn.pred, test.Y)
+5/26
+
+# Predict using KNN for k=5
+knn.pred <- knn(train.X, test.X, train.Y, k=5)
+table(knn.pred, test.Y)
+4/15
+
+# Fit model using GLM
+glm.fits <- glm(Purchase ~., data=Caravan,
+                family=binomial, subset=-test)
+
+# Predict 
+glm.probs <- predict(glm.fits, Caravan[test,],
+                     type="response")
+glm.pred <- rep("No", 1000)
+glm.pred[glm.probs > 0.5] <- "Yes"
+table(glm.pred, test.Y)
+
+glm.pred <- rep("No", 1000)
+glm.pred[glm.probs > 0.25] <- "Yes"
+table(glm.pred, test.Y)
+11/33
+
+```
+With a cut-off of $0.25$ for predicted probability of purchase, predictions are accurate $33%$ of the time. This is over 5x better than random guessing.
+
+
+# Poisson Regression
+
+```{r Bikeshare}
+
+# Take a look at the data
+attach(Bikeshare)
+dim(Bikeshare)
+names(Bikeshare)
+
+```
+
+```{r LS Model}
+
+# Least squares regression
+mod.lm <- lm(bikers ~ mnth + hr + workingday + temp + weathersit, data=Bikeshare)
+
+summary(mod.lm)
+
+# Contrast levels
+contrasts(Bikeshare$hr) = contr.sum(24)
+contrasts(Bikeshare$mnth) = contr.sum(12)
+mod.lm2 <- lm(bikers ~ mnth + hr + workingday + temp + weathersit, data = Bikeshare)
+
+summary(mod.lm2) # will always sum to 0
+
+# Compare models
+sum((predict(mod.lm) - predict(mod.lm2))^2) # SS Differences = 0
+all.equal(predict(mod.lm), predict(mod.lm2))
+
+# Visualizations
+## Months
+coef.months <- c(coef(mod.lm2)[2:12], -sum(coef(mod.lm2)[2:12]))
+
+plot(coef.months, xlab = "Month", ylab = "Coefficient", xaxt = "n", col="blue", pch=19, type="o")
+axis(side=1, at=1:12, labels=c("J", "F", "M", "A", "M", "J", "J", "A", "S", "0", "N", "D"))
+
+## Hours
+coef.hours <- c(coef(mod.lm2)[13:35], -sum(coef(mod.lm2)[13:35]))
+
+plot(coef.hours, xlab="Hour", ylab="Coefficient", col="blue", pch=19, type="o")
+
+```
+
+```{r Poiss Model}
+
+# Fit poisson model with glm
+mod.pois <- glm(bikers ~ mnth + hr + workingday + temp + weathersit, data=Bikeshare, family=poisson)
+
+summary(mod.pois)
+
+# Visualizations
+## Months
+coef.months <- c(coef(mod.pois)[2:12], -sum(coef(mod.pois)[2:12]))
+
+plot(coef.months, xlab = "Month", ylab = "Coefficient", xaxt = "n", col="blue", pch=19, type="o")
+axis(side=1, at=1:12, labels=c("J", "F", "M", "A", "M", "J", "J", "A", "S", "0", "N", "D"))
+
+## Hours
+coef.hours <- c(coef(mod.pois)[13:35], -sum(coef(mod.pois)[13:35]))
+
+plot(coef.hours, xlab="Hour", ylab="Coefficient", col="blue", pch=19, type="o")
+
+## Compare model predictions
+plot(predict(mod.lm2), predict(mod.pois, type="response"))
+abline(0,1, col=2, lwd=3)
+```
+

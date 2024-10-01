@@ -1,0 +1,286 @@
+---
+title: "Hands-on Excercise on Regression"
+author: "Audrey Robertson"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Multiple Linear Regression
+
+## Import Data
+
+```{r insurance}
+# Initialize "pacman" for installing/initializing any needed libs later
+library(pacman)
+
+# Read in and set up data
+
+## Get home working directory
+home <- Sys.getenv("HOME")
+
+## Find and read in breast cancer data file
+insurance <- read.csv(file = paste0(home, "/Data/insurance.csv"),
+                 stringsAsFactors = F)
+
+## Confirm data structure
+str(insurance) # 1338 observations, 7 variables
+
+
+```
+
+## Dependent Variable: "charges"
+
+```{r charges}
+
+# Check "charges" variable 
+summary(insurance$charges)
+
+# Histogram of "charges"
+hist(insurance$charges)
+
+
+```
+
+## Categorical Variables
+
+```{r region}
+
+# Summary table on region
+table(insurance$region) # 4 levels of region
+
+# Summary table on sex
+table(insurance$sex) # 2 levels of sex
+
+# Summary table on smoker
+table(insurance$smoker) # 2 levels of smoker
+
+```
+
+## Correlations of Numeric Variables
+
+```{r numeric}
+
+# Correlation matrix for the 4 numeric variables
+cor(insurance[c("age","bmi","children","charges")])
+
+# Plots
+## Basic scatterplot matrix to look at correlation
+pairs(insurance[c("age","bmi","children","charges")])
+
+## Enhanced scatterplot matrix using "psych::pairs.panels"
+p_load(psych)
+pairs.panels(insurance[c("age","bmi","children","charges")])
+
+```
+
+## Regression Model
+
+```{r regression}
+
+# Linear model "lm()" with charges as the dependent (y) variable
+ins_model <- lm(charges ~ ., data = insurance)
+
+# View the LS estimated coefficients
+## This model creates features for the factor levels of the categorical vars
+ins_model$coefficients
+round(ins_model$coefficients, 2) # Round coeffs so it is easier to look at
+
+```
+
+## Evaluating the Model
+
+```{r evaluate mult reg}
+
+# View the summary of the whole model
+summary(ins_model)
+
+# Evaluate the errors
+summary(ins_model$residuals)
+
+# Significance of model terms (model performance)
+## Stars --> predictive power
+summary(ins_model)$coefficients
+
+# Residual Standard Error
+## Measures quality of fit
+## Can be good to use multiple measures. For ex., want to balance RMSE and R^2
+
+# Multiple R-squared (adjust for # of predictors in the model)
+## Important for models with more terms. Does not inflate with more predictors.
+
+## R^2 = 0.7509
+## R^2_a = 0.7494 (fairly strong corr.)
+
+
+# F-statistic
+## Indicates relationship between predictors and the response
+## OVerall model F-stat measures overall model significance
+
+## This model is significant in predicting charges
+
+
+```
+
+$R^2_\alpha = 0.7494$, fairly strong correlation. 
+
+$Pr(F>|F|) < 2.2e-16$, The model is significant for predicting charges. 
+
+## Improving the Model
+
+```{r improve}
+
+# Create new variable to account for the non-linear relationship between age and change
+insurance$age2 <- insurance$age^2
+
+# Convert BMI to binary indicator (dichotomize)
+## For BMI >= 30, return 1, otherwise 0
+insurance$bmi30 <- ifelse(insurance$bmi >= 30, 1, 0)
+
+# Add interaction effects
+## BMI x smoking as bmi30*smoker in the model
+
+# New Model (Quadratic)
+ins_model2 <- lm(charges ~ age + age2 + children + bmi +
+                   sex + bmi30*smoker + region, data = insurance)
+
+# View model summary
+summary(ins_model2)
+## Age no longer significant...
+## No longer linear
+
+
+```
+
+$R^2_\alpha = 0.8653$, strong correlation. 
+
+$Pr(F>|F|) < 2.2e-16$, the model is significant for predicting charges. 
+
+This model is more significant in predicting charges than the previous model. 
+
+# Polynomial Regression
+
+## Step 0: Install/load packages
+
+```{r 0}
+
+# ggplot2 for visualization, caret for streamlining predictive models
+p_load(ggplot2, caret)
+
+
+```
+
+## Step 1: Load and Inspect Data
+
+```{r cars}
+
+# Load mtcars
+data(mtcars)
+
+# Print first few rows
+head(mtcars)
+
+```
+
+## Step 2: Visualize the Data
+
+Helpful to identify any non-linear patterns.
+
+```{r visualize}
+
+# Scatterplot of mpg (y) vs. wt (x)
+ggplot(mtcars, aes(x=wt, y=mpg)) +
+  geom_point() +
+  labs(x="Weight (lbs/1000)", y="Miles per Gallon") +
+  theme_minimal()
+
+```
+
+## Step 3: Split the Data
+
+```{r split}
+
+# Set seed for reproducibility
+set.seed(123)
+
+# Randomly split the dataset into training and testing sets
+train_index <- createDataPartition(mtcars$mpg, p=0.7, list=F)
+train_data <- mtcars[train_index,]
+test_data <- mtcars[-train_index,]
+
+```
+
+## Step 4: Fit Models
+
+```{r poly}
+
+# Create polynomial function so that we can build multiple polynomial models
+## Use lm function for model and poly to create poly terms
+fit_poly_regression <- function(degree) {
+  formula <- as.formula(paste("mpg ~ poly(wt,", degree, ")"))
+  model <- lm(formula, data=train_data)
+  return(model)
+}
+
+# Fit poly models with degrees 1 to 2
+model_1 <- fit_poly_regression(1)
+summary(model_1)
+
+model_2 <- fit_poly_regression(2)
+summary(model_2)
+
+```
+
+## Step 5: Asses Assumptions
+
+```{r model plot}
+
+# Plot model
+plot(model_1)
+
+
+```
+
+## Step 6: Make Predictions and Evaluate the Models
+
+```{r evaluate poly reg}
+
+# Create function to evaluate model performance on the test set
+evaluate_model <- function(model, test_data) {
+  predictions <- predict(model, newdata = test_data)
+  rmse = RMSE(predictions, test_data$mpg)
+  r2 = R2(predictions, test_data$mpg)
+  aic = AIC(model)
+  print(rmse)
+  print(r2)
+  print(aic)
+}
+
+# Evaluate model 1 and model 2
+## Want lowest RMSE
+evaluate_model(model_1, test_data)
+evaluate_model(model_2, test_data)
+
+```
+Model 2 has a lower RMSE (2.942631), a higher $R^2$, and lower AIC. This model is better than model 1.
+
+## Step 7: Visualize the Final Model on the Test Set
+
+```{r final model}
+
+# Create dataframe with data points and predictions from the best model
+plot_data <- data.frame(wt = test_data$wt, mpg = test_data$mpg, 
+                        Predicted = predict(model_2, newdata = test_data))
+
+# Scatter plot with the polynomial regression line
+ggplot(plot_data, aes(x = wt, y = mpg)) +
+  geom_point() +
+  geom_line(aes(y = Predicted), color="red", linewidth=1) +
+  labs(title = "Scatter Plot with Polynomial Regression Line",
+       x = "Weight (wt)", y="Miles per Gallon (mpg)") +
+  theme_minimal()
+
+```

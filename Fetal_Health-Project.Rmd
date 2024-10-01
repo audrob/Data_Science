@@ -1,0 +1,650 @@
+---
+title: "Fetal Health Data Science Project"
+author: "Audrey Robertson"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Data Set
+
+The data set I have selected to use is a data set on fetal health
+status. This data set contains features from cardiotocogram exams and
+fetal health status classified into Normal, Suspect, or Pathological.
+Cardiotocograms (CTGs) are a simple and low-cost tool to assess fetal
+health. This tool may be able to precent child and maternal mortality.
+Detal health is represeted as 1, 2, and which mean normal, suspect, and
+pathological, respectively.
+
+```{r dataset}
+# Load pacman to manage packages
+library(pacman)
+
+# Load dataset
+## Get home working directory
+home <- Sys.getenv("HOME")
+
+# Data from https://www.kaggle.com/datasets/andrewmvd/fetal-health-classification 
+## Find and read in heart disease data file
+data <- read.csv(file = paste0(home, "/Data/fetal_health.csv"), stringsAsFactors = F)
+
+
+## Confirm data structure
+str(data)
+dim(data) # 2162 observations, 22 variables
+
+summary(data)
+
+data2 <- data
+# Convert variables to factors
+data[,22] <- as.factor(data[,22])
+
+#data1 <- data1 %>%
+  #mutate_at(vars(2:14), ~ na_if(., "")) # Conver blank obs to NA
+#data1[, 2:14] <- lapply(data1[, 2:14], as.factor)
+
+
+# Check for missing values
+sapply(data, function(x) sum(is.na(x))) # no NAs present
+ 
+p_load(dplyr)
+# Detect duplicates in the dataset
+duplicates <- data %>% 
+  filter(duplicated(data))
+
+# Print the number of duplicate rows
+paste("Number of duplicate rows:", nrow(duplicates), "\n")
+
+# Remove duplicates
+data <- data %>% 
+  distinct()
+
+head(data)
+
+```
+
+# Exploratory Data Analysis
+
+```{r EDA}
+
+# Load libraries
+p_load(ggplot2, corrplot)
+
+# Color Palette and Renaming Levels:
+scale_palette <- scale_fill_manual(values = c("1" = "coral2",
+                              "2" = "palegreen3", "3" = "skyblue3"),
+                              labels = c("1" = "Normal",
+                              "2" = "Suspect", "3" = "Pathological")) 
+
+# Bar chart of target variable: fetal_health
+ggplot(data, aes(x = fetal_health)) +
+  geom_bar() +
+  labs(title = "Distribution of Fetal Health", x = "Fetal Health", y = "Count") + 
+  scale_x_discrete(labels = c("1" = "Normal",
+                              "2" = "Suspect", "3" = "Pathological"))
+
+
+# Look at some distributions using KDE plots
+
+# mean STV
+ggplot(data, aes(x = mean_value_of_short_term_variability, fill = fetal_health)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "KDE Plot of Mean STV by Fetal Health",
+       x = "Mean STV",
+       y = "Density") +
+  scale_palette +
+  theme_minimal()
+
+# Abnormal STV
+ggplot(data, aes(x = abnormal_short_term_variability, fill = fetal_health)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "KDE Plot of Abnormal STV by Fetal Health",
+       x = "Abnormal STV",
+       y = "Density") +
+  scale_palette +
+  theme_minimal()
+
+# Percentage of Time with Abnormal STV
+ggplot(data, aes(x = percentage_of_time_with_abnormal_long_term_variability, fill = fetal_health)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "KDE Plot of % Time with Abnormal STV by Fetal Health",
+       x = "% of Time with Abnormal STV",
+       y = "Density") +
+  scale_palette +
+  theme_minimal()
+
+# uterine contractions
+ggplot(data, aes(x = uterine_contractions, fill = fetal_health)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "KDE Plot of Uterine Contractions by Fetal Health",
+       x = "Uterine Contractions",
+       y = "Density") +
+  scale_palette +
+  theme_minimal()
+
+# fetal movement
+ggplot(data, aes(x = prolongued_decelerations, fill = fetal_health)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "KDE Plot of Prolongued Decelerations by Fetal Health",
+       x = "Prolongued Decelerations",
+       y = "Density") +
+  scale_palette +
+  theme_minimal()
+
+
+# Calculate the correlation matrix (fetal_health as numeric)
+correlation_matrix <- cor(data2)
+
+# Plot the correlation matrix
+corrplot(correlation_matrix, method = "color", type = "upper", 
+         title = "Correlation Matrix", 
+         tl.col = "black", tl.srt = 45, tl.cex = 0.5, # Adjust axis text
+         addCoef.col = "black", number.cex = 0.3, number.digits=2) # Add corr vals
+
+# Identify highly correlated features with the target variable
+correlation_with_target <- correlation_matrix[, "fetal_health"]
+correlation_with_target <- sort(correlation_with_target, decreasing = TRUE)
+print(correlation_with_target)
+
+# Identify features with low correlation with the target variable
+low_correlation_features <- names(correlation_with_target[abs(correlation_with_target) < 0.1])
+print(low_correlation_features)
+# Remove these features from data with factored target
+##data <- data[, setdiff(names(data), low_correlation_features)]
+##dim(data)
+
+
+# Remove these features from numeric data
+##data2 <- data2[, setdiff(names(data), low_correlation_features)]
+##dim(data2)
+
+# Calculate the correlation matrix (fetal_health as numeric)
+correlation_matrix <- cor(data2)
+
+# Plot the correlation matrix
+corrplot(correlation_matrix, method = "color", type = "upper", 
+         title = "Reduced Correlation Matrix",
+         tl.col = "black", tl.srt = 45, tl.cex = 0.5, # Adjust axis text
+         addCoef.col = "black", number.cex = 0.3, number.digits=2) # Add corr vals
+# Some histogram features are highly correlated with eachother. May want to remove
+
+# Create a line plot of baseline values versus accelerations, separated by fetal health
+# Calculate the mean value of accelerations for each baseline_value and fetal_health group
+df_grouped <- data %>%
+  group_by(baseline.value, fetal_health) %>%
+  summarise(mean_accelerations = mean(accelerations)) %>%
+  ungroup()
+
+# plot
+ggplot(df_grouped, aes(x = baseline.value, y = mean_accelerations, color = fetal_health)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Baseline Values vs Mean Accelerations, Separated by Fetal Health",
+       x = "Baseline Value",
+       y = "Mean Accelerations",
+       color = "Fetal Health") +
+  scale_palette +
+  theme_minimal()
+
+# Looking at short-term-variability
+# Create a scatter plot of histogram_mode vs histogram_mean by fetal_health
+ggplot(data, aes(x = histogram_mode, y = histogram_mean, color = fetal_health)) +
+  geom_point() +
+  labs(title = "Scatterplot of Histogram Mode vs Histogram Mean by Fetal Health",
+       x = "Histogram Mode",
+       y = "Histogram Mean",
+       color = "Fetal Health") +
+  scale_palette +
+  theme_minimal()
+
+
+
+
+```
+
+# Split the Data
+
+The data will be split using a 70%/30% ratio of testing/training.
+
+```{r split}
+# Install or initialize packages using pacman
+p_load(e1071, caTools, caret)
+
+# Split data into test/train data
+split <- sample.split(data, SplitRatio=0.7) # 70-30% split
+train_cl <- subset(data, split=="TRUE")
+test_cl <- subset(data, split=="FALSE")
+
+## Install/initialize necessary package
+p_load(arsenal)
+
+## Compare to make sure train and test datasets are different
+comparedf(train_cl, test_cl)
+
+# Create scaled train/test set without the class labels
+dim(train_cl)
+train <- scale(train_cl[,-22])
+test <- scale(test_cl[,-22])
+
+# Create class labels
+train_labels <- train_cl[,"fetal_health"]
+test_labels <- test_cl[,"fetal_health"]
+
+# Create a scaled version of train_cl and test_cl
+train_cls <- data.frame(cbind(train, fetal_health = train_labels))
+train_cls[,"fetal_health"] <- as.factor(train_cls[,"fetal_health"])
+
+test_cls <- data.frame(cbind(test, fetal_health = test_labels))
+test_cls[,"fetal_health"] <- as.factor(test_cls[,"fetal_health"])
+
+```
+
+# K-Nearest Neighbor (KNN) Model
+
+Hypothesis: Data points that are close to each other likely belong to
+the same fetal health class.
+
+Assumptions:
+
+-   No assumed distribution (non-parametric)
+
+-   Scaled features - Appropriate distance metric
+
+-   Similarity (close data points are more likely to belong to the same
+    class)
+
+```{r KNN}
+# Install/Initialize necessary package with "knn()" function
+p_load(class)
+
+# Use class::knn() to classify test data
+## Returns factor vector of predicted labels
+test_preds <- knn(train = train, test = test,
+                      cl = train_labels, k = 3) # Optimize value of k
+
+# Evaluate model 
+source(file = paste0(home, "/scripts/evaluate.R"))
+
+# Save KNN results
+knn_results <- results_table 
+colnames(knn_results) <- c("Metric", "KNN")
+
+# Identify major features
+# Can view importance using caret to build the model
+model <- train(x = train, y = train_labels, 
+               method = "knn", 
+               preProcess = c("center", "scale"),
+               tuneGrid = data.frame(k = 3))
+
+# Calculate feature importance
+importance <- varImp(model, scale = FALSE)
+# Plot feature importance
+plot(importance)
+
+# Find average importance for all k
+importance_df_0 <- importance$importance %>%
+  rowwise() %>%
+  mutate(importance = mean(c(X1,X2,X3)))
+
+# Create new data frame
+importance_df <- data.frame(
+  Feature = rownames(importance$importance),
+  Importance = importance_df_0$importance
+)
+
+# Sort the data frame by importance in descending order
+importance_df <- importance_df[order(-importance_df$Importance), ]
+
+# Store top 5 
+KNN_importance <- data.frame(Importance=c(1:5),
+           KNN = head(importance_df$Feature, 5))
+
+# Plot the bar graph
+ggplot(importance_df, aes(x = reorder(Feature, Importance), y = Importance)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Feature Importance from RFE of KNN Model",
+       x = "Features",
+       y = "Importance") +
+  theme_minimal()
+
+```
+
+# Logistic Regression Model
+
+Hypothesis: The multinomial logistic regression model represents the
+relationship between the features and fetal_health.
+
+Assumptions:
+
+-   Independent observations
+
+-   No multicollnearity
+
+-   Features should be accurately measured
+
+-   Proportional odds (the odds ratio of any 2 categories should be
+    independent of all other response categories)
+
+```{r logit}
+
+# Load library
+p_load(nnet)
+
+# Multinomial logistic regression on test data
+model <- multinom(fetal_health ~ ., data = train_cls)
+
+# Predict using this model
+test_preds <- predict(model, newdata = test_cls)
+
+
+# Evaluate the model
+source(file = paste0(home, "/scripts/evaluate.R"))
+
+# Save Logit results
+logit_results <- results_table 
+colnames(logit_results) <- c("Metric", "Logistic Regression")
+
+
+# Identify major features
+
+## Using coeffs
+# Get the coefficients
+model_summary <- summary(model)
+coefficients <- model_summary$coefficients
+
+# Calculate the absolute values of the coefficients
+abs_coefficients <- abs(coefficients)
+
+# Sum the absolute values of the coefficients for each feature
+feature_importance <- rowSums(abs_coefficients)
+
+# Sort the features by importance
+sorted_importance <- sort(feature_importance, decreasing = TRUE)
+
+# Get the top 5 most important features
+top_5_features <- names(sorted_importance)[1:5]
+print(top_5_features)
+
+
+## RFE
+# Calculate permutation importance
+feature_importance <- varImp(model, scale = F)
+
+# Get the top 5 most important features
+# Sort features by importance
+sorted_importance <- feature_importance %>%
+  arrange(desc(Overall))
+
+# show top 5 features
+top_features <- head(sorted_importance, 5)
+print(top_features)
+
+# Store top 5 
+logit_importance <- data.frame(Importance=c(1:5),
+           Logit = rownames(top_features))
+
+
+# Visualize importance
+# Extract feature importance
+importance_df <- data.frame(
+  Feature = rownames(feature_importance),
+  Importance = feature_importance$Overall
+)
+
+# Sort the data frame by importance in descending order
+importance_df <- importance_df[order(-importance_df$Importance), ]
+
+# Plot the bar graph
+ggplot(importance_df, aes(x = reorder(Feature, Importance), y = Importance)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Feature Importance from RFE of Logistic Regression Model",
+       x = "Features",
+       y = "Importance") +
+  theme_minimal()
+
+
+```
+
+# Neural Network (NN) Model
+
+Hypothesis: There is a complex (non-linear) relationship between the
+features and fetal health status. Assumptions:
+
+-   No multicollinearity
+
+-   The data is stationary
+
+-   Data points are independent and identically distributed
+
+-   Sufficient data
+
+-   Training data and testing data come from the same distribution
+
+-   Scaled features
+
+```{r NN}
+# Recommended packages
+p_load(readr)
+
+# Set seed for reproducibility
+set.seed(123)
+# Using the nnet package
+NN <- nnet(fetal_health ~ . ,
+           data=train_cls,
+           size=10, # Optimize # of hidden layers
+           na.action=na.omit
+           );
+
+test_preds <- predict(NN, 
+                   test_cls,
+                   type=c("class")
+                   )
+
+# Evaluate the model
+source(file = paste0(home, "/scripts/evaluate.R"))
+
+# Save NN results
+nn_results <- results_table 
+colnames(nn_results) <- c("Metric", "NN")
+
+# Identify major features
+## Using NeuralNetTools::olden()
+p_load(NeuralNetTools)
+
+# Feature importance scores
+feature_importance <- olden(NN, bar_plot = F)
+
+print(feature_importance)
+
+# Sort features by decending importance
+p_load(dplyr)
+
+# Sort features by importance
+sorted_importance <- feature_importance %>%
+  arrange(desc(importance))
+
+# show top 5 features
+top_features <- head(sorted_importance, 5)
+print(top_features)
+
+# Store top 5 
+NN_importance <- data.frame(Importance=c(1:5),
+           NN = rownames(top_features))
+
+# Visualize importance
+# Convert importance to a data frame
+importance_df <- data.frame(
+  Feature=rownames(feature_importance),
+  importance=feature_importance$importance)
+
+# Sort features by descending importance
+sorted_importance <- importance_df %>%
+  arrange(desc(importance))
+
+# Plot the bar graph for all features
+ggplot(sorted_importance, aes(x = reorder(Feature, importance), y = importance)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Feature Importance (Olden) for NN Model",
+       x = "Features",
+       y = "Importance") +
+  theme_minimal()
+
+
+```
+
+# Support Vector Machine (SVM) Model
+
+Hypothesis: The best decision boundary between fetal health classes
+maximizes the margin. Assumptions:
+
+-   Linearly separable data
+
+-   Non-linear data can be transformed with kernels
+
+-   Sufficient data
+
+-   Scaled Features
+
+```{r SVM}
+# Load package to fit SVM kernel
+p_load(kernlab)
+
+# Selecting a kernel
+kernels <- c("rbfdot","polydot", "vanilladot", "tanhdot",
+             "laplacedot","besseldot","anovadot","splinedot")
+
+for(k in kernels) {
+  classifier <- ksvm(fetal_health ~., data=train_cls, 
+                           kernel=k, type="C-svc")
+  # Predict using this model
+  preds <- predict(classifier, test_cls)
+  
+  # Compare accuracy to the linear SVM
+  print(paste(k,"kernel"))
+  
+  agreement <- preds == test_cls$fetal_health
+  # Proportion
+  print(prop.table(table(agreement)))
+} # anova kernel performs the best
+
+# SVM model using ANOVA Kernel
+svm_classifier <- ksvm(fetal_health ~ ., data = train_cls,
+                       kernel = "anovadot",
+                       kpar=list(sigma=8)) # Improve model with hyperparam tuning
+
+
+# View some basic info about the model
+svm_classifier
+
+
+# Predict using the SVM model
+## Without specifying type="response", will predict "pos" or "neg".
+test_preds <- predict(svm_classifier, test_cls)
+
+# Evaluate the model
+source(file = paste0(home, "/scripts/evaluate.R"))
+results_table
+# Save SVM results
+svm_results <- results_table 
+   colnames(svm_results) <- c("Metric", "SVM")
+
+# Identify major features
+
+# Absolute values of coefficients
+coefficients <- colSums(svm_classifier@xmatrix[[1]] * svm_classifier@coef[[1]])
+feature_importance <- abs(coefficients)
+
+# Sort features by importance
+sorted_features <- sort(feature_importance, decreasing = TRUE)
+
+# Top 5 features
+top_features <- names(sorted_features)[1:5]
+print(top_features)
+
+# Store top 5 
+SVM_importance <- data.frame(Importance=c(1:5),
+           SVM = top_features)
+
+# Visualize importance
+# Create a data frame with feature names and importance scores
+importance_df <- data.frame(
+  Feature = names(feature_importance),
+  Importance = feature_importance
+)
+
+# Sort the data frame by importance in descending order
+importance_df <- importance_df[order(-importance_df$Importance), ]
+
+# Plot the bar graph
+ggplot(importance_df, aes(x = reorder(Feature, Importance), y = Importance)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Feature Importance for SVM Model",
+       x = "Features",
+       y = "Importance") +
+  theme_minimal()
+
+```
+
+# Comparing the Models
+
+## Most Important Features
+
+```{r importance}
+
+# Combine top features results
+# Set join by
+by <- join_by(Importance)
+
+importance_results <- KNN_importance %>%
+  inner_join(logit_importance, by) %>%
+  inner_join(NN_importance, by) %>%
+  inner_join(SVM_importance, by)
+  
+# Format table 
+p_load(kableExtra)
+
+knitr::kable(importance_results, type="html", 
+             caption="Top 5 Most Important Features by Model") %>%
+  kable_classic() %>%
+  kable_styling(full_width=F)
+
+```
+
+Each model has different important features. Accelerations is in the top
+5 most important predictors for 3 of the models.
+
+## Model Evaluation Metrics
+
+```{r eval}
+
+# Combine evaluation results tables
+# Set join by
+by <- join_by(Metric)
+
+eval_results <- knn_results %>%
+  inner_join(logit_results, by) %>%
+  inner_join(nn_results, by) %>%
+  inner_join(svm_results, by)
+  
+# Format table 
+p_load(kableExtra)
+
+knitr::kable(eval_results, type="html", 
+             caption="Model Evaluation Metrics by Model") %>%
+  kable_classic() %>%
+  kable_styling(full_width=F)
+
+```
+
+It appears that the SVM model performed the best overall when predicting
+fetal health status. All models performed well in predicting relatively.

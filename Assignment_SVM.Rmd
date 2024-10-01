@@ -1,0 +1,139 @@
+---
+title: "Hands-On Practice with Support Vector Machines (SVMs)"
+author: "Audrey Robertson"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Dataset
+
+```{r data}
+# load pacman
+library(pacman)
+
+# Read in and set up data from the mlbench library
+p_load(mlbench)
+
+data(PimaIndiansDiabetes2)
+pid <- PimaIndiansDiabetes2 
+
+## View data structure
+str(pid)
+dim(pid) # 768 obs, 9 variables
+
+# Check for missing values
+## SVM does not work well with missing data
+sapply(pid, function(x) sum(is.na(x))) # NAs present
+
+# Remove NA vals with dplyr
+p_load(dplyr)
+
+pid <- pid %>% na.omit()
+dim(pid) #392 obs & 9 vars without the NA values
+```
+
+# Split the Data
+
+```{r split}
+# Load packages
+p_load(e1071, caTools, caret)
+
+# Split data into test/train data
+set.seed(123) # Set seed for reproducibility
+split <- sample.split(pid, SplitRatio=0.8) # 80%
+pid_train <- subset(pid, split=="TRUE")
+pid_test <- subset(pid, split=="FALSE")
+
+```
+
+
+# Training
+
+```{r train}
+# Load package to fit SVM kernel
+p_load(kernlab)
+# Help functions to look at syntax and arguments.
+?ksvm
+?predict
+
+pid_classifier <- ksvm(diabetes ~ ., data = pid_train,
+                       kernel = "vanilladot") #  Linear Kernel
+
+# View some basic info about the model
+pid_classifier
+
+```
+
+# Evaluate Model Performance
+
+```{r eval}
+
+# Predict using the SVM model
+## Without specifying type="response", will predict "pos" or "neg".
+pid_predictions <- predict(pid_classifier, pid_test)
+
+# View first 6 predicted diabetes statuses
+head(pid_predictions)
+
+# Compare predcited status to true status
+table(pid_predictions, pid_test$diabetes)
+dim(pid_test)
+
+# Do the values match?
+## Same as sum of diagonals (or off-diag) divided by total
+agreement <- pid_predictions == pid_test$diabetes
+## Count
+table(agreement)
+## Proportion
+prop.table(table(agreement))
+```
+$(52+18)/87=0.8046=80.46%$ of values were accurately predicted. 
+$52/63=0.8254=82.54%$ of negative diabetes status was accurately predicted as negative. 
+$18/24=0.75=75%$ of positive diabetes status was accurately predicted as positive. 
+This linear SVM model performs strongly in predicting diabetes status in Pima Indians.
+
+
+# Improving Model Performance
+
+```{r improve}
+# Use Gaussian RBF Kernel
+## This is a popular kernel function to begin with when improving models.
+pid_classifier_rbf <- ksvm(diabetes~., data=pid_train, 
+                           kernel="rbfdot")
+
+# Predict using this model
+pid_predictions_rbf <- predict(pid_classifier_rbf,
+                               pid_test)
+
+# Compare accuracy to the linear SVM
+agreement_rbf <- pid_predictions_rbf == pid_test$diabetes
+# Count
+table(agreement_rbf)
+# Proportion
+prop.table(table(agreement_rbf))
+
+
+# Use Polynomial Kernel
+pid_classifier_poly <- ksvm(diabetes~., data=pid_train, 
+                           kernel="polydot", scaled=T)
+
+# Predict using this model
+pid_predictions_poly <- predict(pid_classifier_poly,
+                               pid_test)
+
+# Compare accuracy to the linear SVM
+agreement_poly <- pid_predictions_poly == pid_test$diabetes
+# Count
+table(agreement_poly)
+# Proportion
+prop.table(table(agreement_poly))
+
+
+
+```
+
+Using the Gaussian RBF kernel, $63/87=0.7241=72.41%$ of values were accurately predicted. This kernel performed worse than the linear kernel. All other available kernels provided by kernlab::ksvm did not perform as well as the linear kernel (with minimal adjustments) other than the polynomial kernel that performed comparably to the linear kernel.

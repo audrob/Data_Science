@@ -1,0 +1,208 @@
+---
+title: "In Class Exercise on Logistic Regression"
+author: "Audrey Robertson"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Load in Data
+
+```{r data}
+
+# Read in and set up data
+
+## Get home working directory
+home <- Sys.getenv("HOME")
+
+## Find and read in breast cancer data file
+dm <- read.csv(file = paste0(home, "/Data/diabetes.csv"),
+                 stringsAsFactors = F)
+
+## View data structure
+str(dm) # 253680 observations, 22 variables 
+dim(dm)
+
+# Check for missing values
+sapply(dm, function(x) sum(is.na(x))) # $ NA = 0 for all cols
+
+# Enable pacman for any needed packages
+library(pacman)
+# Load dplyr
+p_load(dplyr)
+
+# Remove Type 1 Diabetes (Diabetes_012 = 1) to have a binary/dichotomous outcome
+# Type 1 diabetes is genetic and risk factors are not of much interest
+## Recode 2 as 1 for the logistic regression (outcome~[0,1])
+dm <- dm %>%
+  mutate(Diabetes_012 = na_if(Diabetes_012, 1)) %>%
+  na.omit() %>%
+  mutate(Diabetes = as.factor(case_when(Diabetes_012 == 0 ~ 0,
+                              Diabetes_012 == 2 ~ 1))) 
+
+
+```
+
+
+# Closer look at some predictors
+
+```{r predictors}
+
+# Interesting predictors
+summary(dm$Age)
+summary(dm$BMI)
+
+
+# Histograms
+## Age
+hist(dm$Age, main = "patients age", xlab = "Age", breaks = 20, col =rgb(0.5,0,0,0.5))
+
+# BMI
+hist(dm$BMI, main = "patients BMI", xlab = "BMI", breaks = 20, col =rgb(0,0.5,0,0.5))
+
+
+# Interesting Categorical Predictors
+round(prop.table(table(dm$Sex)),2)
+round(prop.table(table(dm$Smoker)),2)
+
+# Load gmodels for Crosstable
+p_load(gmodels)
+CrossTable(dm$Sex,dm$Smoker)
+
+##Cramer’s V is used to calculate the correlation between nominal categorical variables. 
+p_load(rcompanion)
+cramerV(dm$Sex,dm$Smoker)
+
+```
+
+
+# Correlations
+
+```{r correlations}
+
+# Load Hmisc package
+p_load(Hmisc)
+
+# Correlation matrix across all continuous predictors
+cor <- rcorr(as.matrix(dm[,c("BMI","Age")]))
+round(cor$r,3)
+round(cor$P,3)
+
+# Correlation matrix across all predictors
+cor <- rcorr(as.matrix(dm))
+round(cor$r,3)
+round(cor$P,3)
+
+```
+
+
+
+# Logistic Regression Model
+
+```{r logit}
+
+# Use general linear model glm()
+dm_model <- glm(Diabetes ~ ., data=dm, family=binomial (link=logit))
+fitted(dm_model)
+summary(dm_model)
+
+# ANOVA table
+anova(dm_model, test = "Chisq")
+
+# Eliminate non-sig predictors: Smoker + NoDocbcCost (Veggies + Any Healthcare are marginally sig)
+dm_model2 <- glm(Diabetes ~ HighBP + HighChol + CholCheck + BMI + Stroke + HeartDiseaseorAttack + PhysActivity + Fruits + Veggies + HvyAlcoholConsump + AnyHealthcare + GenHlth + MentHlth + PhysHlth + DiffWalk + Sex + Age + Education + Income, data=dm, family=binomial (link=logit))
+
+summary(dm_model2)
+
+# ANOVA table
+anova(dm_model2, test = "Chisq")
+
+```
+
+# Check Model Fit
+```{r check}
+
+# Load packages
+p_load(DescTools)
+p_load(generalhoslem)
+
+# Power of prediction 
+Cstat(dm_model2) # Good power of prediction
+
+# Homer Lemeshow Test
+logitgof(obs = dm_model2$y,exp = fitted(dm_model2), g=10) # Significant. Observed and expected proportions are NOT the same. Poor fit.
+```
+
+
+# Assess Model Usefulness
+
+```{r assess}
+
+# Predict probabilities on the training data
+glm.probs <- predict(dm_model2, type = "response")
+
+# Convert probabilities to binary outcomes
+
+## Create vector of class predictions 
+## Based on probability of increase > or < 0.5
+dim(dm)
+glm.pred <- rep(0, 249049)
+glm.pred[glm.probs > .5] = 1
+# other method
+## glm.pred <- ifelse(glm.probs > 0.5, 1, 0)
+
+
+# Accuracy
+
+# Confusion matrix to see how many were incorrectly classified.
+## Accuracy
+table(glm.pred, dm$Diabetes)
+(6138+208593) / 249049 # 0.8622038
+mean(glm.pred == dm$Diabetes) # 0.8622038
+
+## Using the ConfusionMatrix Function from MLmetrics
+p_load(MLmetrics)
+ConfusionMatrix(y_pred=glm.pred, y_true=dm$Diabetes)
+(6138+208593) / 249049 # 0.8622038
+
+## Using the Accuracy Function from MLmetrics
+Accuracy(y_pred=glm.pred, y_true=dm$Diabetes) # 0.8622038
+# The model correctly predicts 86.22% of the time.
+
+
+# Precision
+## Using MLmetrics
+Precision(y_pred=glm.pred, y_true=dm$Diabetes, positive=1) # 0.545697
+## 54.57% of those predicted to have type 2 Diabetes will actually have type 2 Diabetes (54.47% of positives are true positives)
+
+
+# Sensitivity (True Positivity Rate)
+## Using MLmetrics
+Sensitivity(y_pred=glm.pred, y_true=dm$Diabetes, positive=1) # 0.1736547
+## Correctly predicts individuals with type 2 Diabetes only 17.37% of the time.
+
+
+# Specificity  (True Negativity Rate)
+## Using MLmetrics
+Specificity(y_pred=glm.pred, y_true=dm$Diabetes, positive=1) # 0.9760883
+## Correctly predicts individuals without type 2 Diabetes 97.61% of the time.
+
+
+# F1 Score
+## Using MLmetrics
+F1_Score(y_pred=glm.pred, y_true=dm$Diabetes, positive=1) # 0.2634674
+# The model has a relatively low balance between precision and Sensitivity),. Precision, Recall (Sensitivity), or both are low.
+
+# ROC Curve (AUC)
+## Using MLmetrics
+AUC(y_pred=glm.pred, y_true=dm$Diabetes) # 0.5748715
+# The model has a 57.49% chance of correctly distinguishing between patients with and without type 2 Diabetes.
+## The test is better than random guessing, but may still classify a significant amounts of patients wrongly.
+
+
+```
+

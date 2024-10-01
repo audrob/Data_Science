@@ -1,0 +1,476 @@
+---
+title: "Assignment 4"
+author: "Audrey Robertson"
+date: "2024-09-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Dataset
+
+## Load in the Data
+
+```{r data}
+# load pacman
+library(pacman)
+
+# Read in and set up data from the mlbench library
+p_load(mlbench)
+
+data(PimaIndiansDiabetes2)
+pid <- PimaIndiansDiabetes2 
+
+## Get home working directory
+home <- Sys.getenv("HOME")
+
+## View data structure
+str(pid)
+dim(pid) # 768 obs, 9 variables
+
+# Check for missing values
+sapply(pid, function(x) sum(is.na(x))) # NAs present
+
+# Remove NA vals with dplyr
+p_load(dplyr)
+
+pid <- pid %>% na.omit()
+dim(pid) #392 obs & 9 vars without the NA values
+
+```
+
+
+## Predictors
+
+```{r predictors}
+
+summary(pid)
+
+# Numeric Predictors
+summary(pid$age)
+summary(pid$insulin)
+
+
+# Histograms
+## Age
+hist(pid$age, main = "patients' age", 
+     xlab = "Age", breaks = 4, col =rgb(0.5,0,0,0.5))
+
+# Insulin
+hist(pid$insulin, main = "insulin", 
+     xlab = "Hours", breaks = 5, col =rgb(0,0.5,0,0.5))
+
+
+# Interesting Categorical Predictors
+round(prop.table(table(pid$pregnant)),2)
+
+
+## Cramer’s V is used to calculate the correlation between nominal categorical variables. 
+p_load(rcompanion)
+# cramerV(pid$,hf$Smoker)
+
+```
+
+
+
+# Split the Data
+
+```{r split}
+# Load packages
+p_load(e1071, caTools, caret)
+
+# Split data into test/train data
+set.seed(123) # Set seed for reproducibility
+split <- sample.split(pid, SplitRatio=0.7) #70%
+train_cl <- subset(pid, split=="TRUE")
+test_cl <- subset(pid, split=="FALSE")
+
+pid_train <- train_cl[,-9]
+pid_test <- test_cl[,-9]
+
+```
+
+
+# Models
+
+
+## Naive Bayes
+
+### Build Model
+
+```{r NB model}
+
+# Fitting Naive Bayes Model to the "train_cl" dataset
+set.seed(120) # Set seed for reproducibility
+
+
+classifier_cl <- naiveBayes(diabetes ~ ., data=train_cl)
+classifier_cl
+## Conditional probability for each feature is created by model separately. 
+## Apriori probabilities are also calculated which indicates distribution of our data.
+
+# Predicting on test data
+y_pred <- predict(classifier_cl, newdata=test_cl)
+
+
+```
+### Assess Model
+
+```{r NB assess}
+# Confusion Matrix
+cm <- table(test_cl$diabetes, y_pred)
+cm
+## Most correctly classified
+## 73/90 negative diabetes correctly classified
+## 24/41 positive diabetes correctly classified
+
+```
+
+
+### Improve Model
+
+```{r NB improve}
+# Resource used: https://www.baeldung.com/cs/naive-bayes-classification-performance
+
+# Evaluate correlated features to remove highly correlated.
+cor(pid[,1:8]) 
+## age and pregnant have a moderate correlation 
+## insulin and glucose have a moderate correlation 
+## mass and triceps have a moderate correlation 
+# Try removing to see improvements
+
+# Remove pregnant
+# Fitting Naive Bayes Model to the "train_cl" dataset
+set.seed(120) # Set seed for reproducibility
+
+classifier_cl <- naiveBayes(diabetes ~ glucose + pressure
+                            + triceps + pedigree + age, 
+                            data=train_cl)
+classifier_cl
+
+# Probabilities on test data
+y_prob <- predict(classifier_cl, newdata=test_cl, type="raw")
+# Use log probabilities to help improve the model
+log_prob <- log(y_prob)
+
+# Predict the class with the highest log probability for each observation
+y_pred <- colnames(log_prob)[max.col(log_prob, ties.method = "first")]
+
+# Confusion Matrix
+cm <- table(test_cl$diabetes, y_pred)
+cm
+## Most correctly classified
+## 76/90 negative diabetes correctly classified. Slightly higher than before.
+## 25/41 positive diabetes correctly classified. Slightly improved.
+
+```
+
+
+## KNN
+
+### Build Model
+
+```{r KNN model}
+# Normalize
+# Create "normalize" function
+normalize <- function(x) {
+  return ((x - min(x)) / (max(x) - min(x)))
+}
+
+## Test the new function
+normalize(c(1,2,3,4,5))
+normalize(c(10,20,30,40,50))
+
+# Apply "normalize" to the data frame
+train_n <- as.data.frame(lapply(pid_train[1:8], normalize)) 
+test_n <- as.data.frame(lapply(pid_test[1:8], normalize)) 
+
+# Store class labels in factor vectors
+train_labels <- train_cl[,9] 
+test_labels <- test_cl[,9] 
+
+# Install/Initialize necessary package with "knn()" function
+p_load(class)
+
+# Use class::knn() to classify test data
+## Returns factor vector of predicted labels
+test_pred <- knn(train = train_n, test = test_n,
+                      cl = train_labels, k = 5)
+
+
+```
+
+### Assess Model
+
+```{r KNN assess}
+
+# Load necessary package for crosstabs
+p_load(gmodels)
+
+# Create crosstab
+CrossTable(x = test_labels, y = test_pred, 
+           prop.chisq = F)
+## Most correctly classified
+## 75/90 negative diabetes correctly classified (83%)
+## 23/41 positive diabetes correctly classified (56%)
+
+## 18/131 (13.7%) were incorrectly classified. False Positives (FPs). pos x neg
+## 15/131 (11.5%) False Negatives. neg x pos
+
+```
+
+
+### Improve Model
+
+```{r KNN improve}
+
+# Z-score standardization
+## Standardize after splitting
+train_z <- scale(train_cl[,-9])
+test_z <- scale(test_cl[,-9])
+
+train_labels
+test_labels
+
+# Use class::knn() to classify test data
+## Returns factor vector of predicted labels
+test_pred <- knn(train = train_z, test = test_z,
+                      cl = train_labels, k = 5)
+
+# Create crosstab
+CrossTable(x = test_labels, y = test_pred, 
+           prop.chisq = F)
+## Most correctly classified
+## 75/90 negative diabetes correctly classified (83%)
+## 22/41 positive diabetes correctly classified (56%)
+
+## 19/131 (13.7%) were incorrectly classified. False Positives (FPs). pos x neg
+## 15/131 (11.5%) False Negatives. neg x pos
+
+# Weighted KNN using kknn
+p_load(kknn)
+
+knn_model <- kknn(diabetes ~., train_cl, test_cl, kernel="optimal", 
+                  distance=2, scale = T, )
+summary(knn_model)
+knn_fit <- fitted(knn_model)
+
+# Create crosstab
+CrossTable(x = test_labels, y = knn_fit, 
+           prop.chisq = F)
+## Most correctly classified
+## 75/90 negative diabetes correctly classified (83%)
+## 23/41 positive diabetes correctly classified (56%)
+
+## 18/131 (13.7%) were incorrectly classified. False Positives (FPs). pos x neg
+## 15/131 (11.5%) False Negatives. neg x pos
+
+
+```
+
+
+
+## Regression
+
+### Build Model
+
+```{r reg model}
+
+# Recode diagnosis as 0 and 1
+# Load package
+p_load(dplyr)
+
+pid_b <- pid %>%
+  mutate(diabetes = if_else(diabetes=="pos", 1, 0))
+
+# Use general linear model glm()
+pid_model <- glm(diabetes ~ ., data=pid_b, family=binomial (link=logit))
+fitted(pid_model)
+summary(pid_model)
+
+# ANOVA table
+anova(pid_model, test = "Chisq")
+
+```
+
+### Assess Model
+
+```{r reg assess}
+
+# Predict probabilities on the training data
+glm.probs <- predict(pid_model, type = "response")
+
+# Convert probabilities to binary outcomes
+
+## Create vector of class predictions 
+## Based on probability of increase > or < 0.5
+dim(pid)
+glm.pred <- rep(0, 392)
+glm.pred[glm.probs > .5] = 1
+# other method
+## glm.pred <- ifelse(glm.probs > 0.5, 1, 0)
+
+
+# Accuracy
+
+# Confusion matrix to see how many were incorrectly classified.
+## Accuracy
+table(glm.pred, pid_b$diabetes)
+mean(glm.pred == pid_b$diabetes) # 0.7832
+
+## Use MLmetrics to assess model
+p_load(MLmetrics)
+
+# Precision
+## Using MLmetrics
+Precision(y_pred=glm.pred, y_true=pid_b$diabetes, positive=1) # 0.7184466
+## 71.84% of those predicted to have type Diabetes will actually have type Diabetes (71.84%  of positives are true positives)
+
+
+# Sensitivity (True Positivity Rate)
+## Using MLmetrics
+Sensitivity(y_pred=glm.pred, y_true=pid_b$diabetes, positive=1) # 0.5692308
+## Correctly predicts individuals with type 2 Diabetes 58.21% of the time.
+
+
+# Specificity  (True Negativity Rate)
+## Using MLmetrics
+Specificity(y_pred=glm.pred, y_true=pid_b$diabetes, positive=1) # 0.8893
+## Correctly predicts individuals without type 2 Diabetes 89% of the time.
+
+
+# F1 Score
+## Using MLmetrics
+F1_Score(y_pred=glm.pred, y_true=pid_b$diabetes, positive=1) # 0.6352
+# The model has a moderate balance between precision and Sensitivity,
+
+# ROC Curve (AUC)
+## Using MLmetrics
+AUC(y_pred=glm.pred, y_true=pid_b$diabetes) # 0.7293
+# The model has a 72.93% chance of correctly distinguishing between patients with and without type 2 Diabetes.
+## The test is better than random guessing, but may still classify a significant amounts of patients wrongly.
+
+```
+
+
+### Improve Model
+
+```{r reg improve}
+# Eliminate non-sig predictors
+pid_model2 <- glm(diabetes ~ pregnant + glucose + mass + pedigree, 
+                 data=pid, family=binomial (link=logit))
+
+summary(pid_model2)
+
+# ANOVA table
+anova(pid_model2, test = "Chisq")
+
+# Assess
+
+# Predict probabilities on the training data
+glm.probs2 <- predict(pid_model2, type = "response")
+
+# Convert probabilities to binary outcomes
+
+## Create vector of class predictions 
+## Based on probability of increase > or < 0.5
+dim(pid)
+glm.pred2 <- rep(0, 392)
+glm.pred2[glm.probs2 > .5] = 1
+# other method
+## glm.pred <- ifelse(glm.probs > 0.5, 1, 0)
+
+
+# Accuracy
+
+# Confusion matrix to see how many were incorrectly classified.
+## Accuracy
+table(glm.pred2, pid_b$diabetes)
+mean(glm.pred2 == pid_b$diabetes) # 0.7959184
+
+
+# Precision
+## Using MLmetrics
+Precision(y_pred=glm.pred2, y_true=pid_b$diabetes, positive=1) # 0.75
+## 71.84% of those predicted to have type Diabetes will actually have type Diabetes (71.84%  of positives are true positives)
+
+
+# Sensitivity (True Positivity Rate)
+## Using MLmetrics
+Sensitivity(y_pred=glm.pred2, y_true=pid_b$diabetes, positive=1) # 0.5769231
+## Correctly predicts individuals with type 2 Diabetes 58.21% of the time.
+
+
+# Specificity  (True Negativity Rate)
+## Using MLmetrics
+Specificity(y_pred=glm.pred2, y_true=pid_b$diabetes, positive=1) # 0.9045802
+## Correctly predicts individuals without type 2 Diabetes 89% of the time.
+
+
+# F1 Score
+## Using MLmetrics
+F1_Score(y_pred=glm.pred2, y_true=pid_b$diabetes, positive=1) # 0.6521739
+# The model has a moderate balance between precision and Sensitivity,
+
+# ROC Curve (AUC)
+## Using MLmetrics
+AUC(y_pred=glm.pred2, y_true=pid_b$diabetes) # 0.7407516
+# The model has a 72.93% chance of correctly distinguishing between patients with and without type 2 Diabetes.
+## The test is better than random guessing, but may still classify a significant amounts of patients wrongly.
+
+# Overall the model improved marginally, Specificity improved the most.
+
+```
+```{r reg improve 2} 
+
+# Lower the threshold to balance specificity with sensitivity (and other measures)
+glm.pred2[glm.probs2 > .4] = 1
+# other method
+## glm.pred <- ifelse(glm.probs > 0.5, 1, 0)
+
+
+# Accuracy
+
+# Confusion matrix to see how many were incorrectly classified.
+## Accuracy
+table(glm.pred2, pid_b$diabetes)
+mean(glm.pred2 == pid_b$diabetes) # 0.7959184
+
+
+# Precision
+## Using MLmetrics
+Precision(y_pred=glm.pred2, y_true=pid_b$diabetes, positive=1) # 0.75
+## 71.84% of those predicted to have type Diabetes will actually have type Diabetes (71.84%  of positives are true positives)
+
+
+# Sensitivity (True Positivity Rate)
+## Using MLmetrics
+Sensitivity(y_pred=glm.pred2, y_true=pid_b$diabetes, positive=1) # 0.5769231
+## Correctly predicts individuals with type 2 Diabetes 58.21% of the time.
+
+
+# Specificity  (True Negativity Rate)
+## Using MLmetrics
+Specificity(y_pred=glm.pred2, y_true=pid_b$diabetes, positive=1) # 0.9045802
+## Correctly predicts individuals without type 2 Diabetes 89% of the time.
+
+
+# F1 Score
+## Using MLmetrics
+F1_Score(y_pred=glm.pred2, y_true=pid_b$diabetes, positive=1) # 0.6521739
+# The model has a moderate balance between precision and Sensitivity,
+
+# ROC Curve (AUC)
+## Using MLmetrics
+AUC(y_pred=glm.pred2, y_true=pid_b$diabetes) # 0.7407516
+# The model has a 72.93% chance of correctly distinguishing between patients with and without type 2 Diabetes.
+## The test is better than random guessing, but may still classify a significant amounts of patients wrongly.
+
+# Overall the model improved marginally, Specificity improved the most.
+```
+
+
+

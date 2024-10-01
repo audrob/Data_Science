@@ -1,0 +1,68 @@
+---
+title: "Hands-on Excercise on Naive Bayes"
+author: "Audrey Robertson"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Iris dataset
+
+```{r iris}
+
+# Initialize pacman to import libs as needed
+library(pacman)
+
+# Load data
+data(iris)
+
+# Check the data structure
+str(iris)
+
+```
+# Performing Naive Bates on Dataset
+
+```{r NB}
+
+# Install or initialize packages using pacman
+p_load(e1071, caTools, caret)
+
+# Split data into test/train data
+split <- sample.split(iris, SplitRatio=0.7) #70%
+train_cl <- subset(iris, split=="TRUE")
+test_cl <- subset(iris, split=="FALSE")
+
+# Feature scaling (z-score)
+##  Normality Assumption N(mu, sigma)
+train_scale <- scale(train_cl[,1:4])
+test_scale <- scale(test_cl[,1:4])
+
+# Fitting Naive Bayes Model to the "train_cl" dataset
+set.seed(120) # Set seed for reproducibility
+classifier_cl <- naiveBayes(Species ~ ., data=train_cl)
+classifier_cl
+## Conditional probability for each feature is created by model separately. 
+## Apriori probabilities are also calculated which indicates distribution of our data.
+
+# Predicting on test data
+y_pred <- predict(classifier_cl, newdata=test_cl)
+
+# Confusion Matrix
+cm <- table(test_cl$Species, y_pred)
+cm
+## Most correctly classified
+## 20/20 setosa correctly classified
+## 20/22 versicolor correctly classified
+## 18/18 virginica correctly classified
+
+# Model Evaluation
+confusionMatrix(cm)
+## High accuracy with sensitivity, specificity, and balanced accuracy.
+## Model is good
+
+```
+
+

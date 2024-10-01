@@ -1,0 +1,175 @@
+---
+title: "Hands-on Excercise on KNN"
+author: "Audrey Robertson"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Step 2: Exploring and Preparing the Data
+
+```{r data}
+
+# Read in and set up data
+
+## Get home working directory
+home <- Sys.getenv("HOME")
+
+## Find and read in breast cancer data file
+wbcd <- read.csv(file = paste0(home, "/Data/breast-cancer-wisconsin.csv"),
+                 stringsAsFactors = F, encoding = "utf-8")
+
+## Confirm data structure
+str(wbcd) # 569 observations, 32 variables 
+
+## Remove the ID variable
+wbcd <- wbcd[-1]
+
+
+# "diagnosis" variable
+
+## Look at variable of interest "diagnosis"
+table(wbcd$diagnosis)
+
+## Re-code diagnosis variable as factors, label the factor levels
+wbcd$diagnosis <- factor(wbcd$diagnosis, levels = c("B", "M"), 
+                         labels = c("Benign", "Malignant"))
+
+## View prop.table() to see factor level proportions
+round(prop.table(table(wbcd$diagnosis)) * 100, digits = 1)
+
+
+# 3 other variables of interest
+
+## Summarize
+### Gives idea about the range of the dataset
+summary(wbcd[c("radius_mean", "area_mean", "smoothness_mean")])
+
+```
+
+## Transformation
+
+Normalizing numeric data
+
+```{r transform}
+
+# Create "normalize" function
+normalize <- function(x) {
+  return ((x - min(x)) / (max(x) - min(x)))
+}
+
+## Test the new function
+normalize(c(1,2,3,4,5))
+normalize(c(10,20,30,40,50))
+
+
+# Apply "normalize" to the data frame
+wbcd_n <- as.data.frame(lapply(wbcd[2:31], normalize))
+
+## Confirm transformation by looking at 1 variable's summary stats
+summary(wbcd_n$area_mean)
+
+```
+## Data Preparation
+
+Creating training and test datasets
+
+```{r prep}
+
+# Subset data into training data and test data
+## Typically want random partitioning
+wbcd_train <- wbcd_n[1:469,]
+wbcd_test <- wbcd_n[470:569,]
+
+
+#Compare dataframes
+
+## Initialize pacman for installing and initializing packages
+library(pacman)
+
+## Install/initialize necessary package
+p_load(arsenal)
+
+## Compare to make sure train and test datasets are different
+comparedf(wbcd_train, wbcd_test)
+
+# Store class labels in factor vectors
+wbcd_train_labels <- wbcd[1:469,1]
+wbcd_test_labels <- wbcd[470:569,1]
+
+```
+
+
+# Step 3: Training a Model on the Data
+
+```{r train}
+
+# Install/Initialize necessary package with "knn()" function
+p_load(class)
+
+# class::knn() function guide
+?knn
+
+# Use class::knn() to classify test data
+## Returns factor vector of predicted labels
+wbcd_test_pred <- knn(train = wbcd_train, test = wbcd_test,
+                      cl = wbcd_train_labels, k = 21)
+
+
+```
+
+
+# Step 4: Evaluating Model Performance
+
+```{r eval}
+
+# Install/Initialize necessary package for crosstabs
+p_load(gmodels)
+
+# Create crosstab
+CrossTable(x = wbcd_test_labels, y = wbcd_test_pred, 
+           prop.chisq = F)
+## 2/100 (2%) were incorrectly classified. False Positives (FPs) Malignant x Benign
+
+```
+# Step 5: Improving Model Performance
+
+## Transformation: z-score Standardization
+
+```{r z-score}
+
+# Transform with z-score standardization using "base::scale()"
+wbcd_z <- as.data.frame(scale(wbcd[-1]))
+
+## Confirm the transformation was correct. Range -1 to 1
+summary(wbcd_z$area_mean)
+
+
+# Subset data into training data and test data
+## Typically want random partitioning
+wbcd_train <- wbcd_z[1:469,]
+wbcd_test <- wbcd_z[470:569,]
+
+#Compare dataframes
+## Compare to make sure train and test datasets are different
+comparedf(wbcd_train, wbcd_test)
+
+# Store class labels in factor vectors
+wbcd_train_labels <- wbcd[1:469,1]
+wbcd_test_labels <- wbcd[470:569,1]
+
+# Use class::knn() to classify test data
+## Returns factor vector of predicted labels
+wbcd_test_pred <- knn(train = wbcd_train, test = wbcd_test,
+                      cl = wbcd_train_labels, k = 21)
+
+# Create crosstab
+CrossTable(x = wbcd_test_labels, y = wbcd_test_pred, 
+           prop.chisq = F)
+## 2/100 (2%) were incorrectly classified. False Positives (FPs) Malignant x Benign
+
+```
+

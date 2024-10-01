@@ -1,0 +1,327 @@
+---
+title: "Practical PCA Homework"
+author: "Audrey Robertson"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Dataset
+
+```{r dataset}
+# Load pacman to manage packages
+library(pacman)
+
+# Load dataset
+## Get home working directory
+home <- Sys.getenv("HOME")
+
+## Find and read in heart disease data file
+hearts <- read.csv(file = paste0(home, "/Data/heart.csv"), stringsAsFactors = F)
+heart <- hearts[,c("age","trestbps","chol","thalach","oldpeak","target")]
+dim(heart)
+## Confirm data structure
+str(heart) # 303 observations, 14 variables 
+dim(heart)
+
+summary(heart)
+
+# Check for missing values
+## SVM does not work well with missing data
+sapply(heart, function(x) sum(is.na(x))) # No missing values (NA)
+
+# Set "target" as factor
+heart$target <- as.factor(heart$target)
+```
+# Split Data
+```{r split}
+
+# Set seed for reproducibility
+set.seed(111)
+ind <- sample(2, nrow(heart),
+              replace = TRUE,
+              prob = c(0.8, 0.2))
+
+train <- heart[ind==1,]
+test <- heart[ind==2,]
+
+```
+
+# Scatter Plot & Correlations
+```{r explore}
+# Load "psych" to create plots and view correlations all at once.
+p_load(psych)
+
+# Predictors versus "target" (column 14)
+pairs.panels(train[,-6],
+             gap=0,
+             bg=c("red", "yellow", "blue")[train$target])
+# Non-zero correlations
+```
+There are many non-zero correlations- there may be multicollinearity.
+
+
+# Principal Component Analysis
+```{r PCA}
+
+# Using stats::prcomp() 
+pca <- prcomp(train[,-6],
+             center=T,
+             scale.=T)
+
+attributes(pca)
+
+pca$center
+pca$scale # Used for normalization
+
+# Results
+print(pca)
+summary(pca)
+
+# Another method for easy plotting
+p_load(FactoMineR,factoextra)
+
+# Using FactoMineR::PCA()
+pc <- PCA(train[,-6], scale.unit = T, ncp = 5, graph = F)
+plot(pc)
+
+```
+## Orthogonality of Principal Components
+```{r orthog}
+# Using psych again
+pairs.panels(pca$x,
+             gap=0,
+             bg = c("red", "yellow", "blue")[train$target],
+             pch=21)
+# Now all corr. coefficients are 0
+```
+All correlation coefficients are 0, so there are no longer multicollnearity issues.
+
+## Plots
+```{r plots}
+
+# Looking at the stats::prcomp() results
+plot(pca)
+
+# Bi-plot
+p_load(devtools,ggbiplot)
+
+g <- ggbiplot(pca,
+              obs.scale = 1,
+              var.scale = 1,
+              groups = train$target,
+              ellipse = TRUE,
+              circle = TRUE,
+              ellipse.prob = 0.68)
+g <- g + scale_color_discrete()
+g <- g + theme(legend.direction = 'horizontal',
+               legend.position = 'top')
+print(g)
+
+
+# Looking at the FactoMineR::PCA() results
+
+# Biplot
+fviz_pca_biplot(pc, 
+                habillage=train$target, # Group by outcome 
+                addEllipses = T) 
+
+# Scree plot
+fviz_screeplot(pc, addlabels=T, ylim=c(0,50))
+
+# Pairs plot
+pairs(pc$ind$coord, main="Pairs Plot")
+
+# Eigencor plot
+# Correlation matrix between variables and principal components
+eigencor <- cor(train[,-6], pc$ind$coord)
+
+# Plot the eigencor matrix
+p_load(corrplot)
+corrplot(eigencor, is.corr = FALSE, cl.ratio=0.2, cl.offset=1, cl.align.text='c')
+
+# Loadings Plot
+fviz_pca_var(pc, col.var = "contrib", gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), repel = TRUE)
+
+```
+# Number of Principal Components
+
+```{r optimal}
+pc$eig[1:5,3]
+
+# Scree plot
+fviz_screeplot(pc, addlabels = TRUE, ylim = c(0, 100)) +
+  geom_line(aes(y = pc$eig[1:5,3]), color='red', linetype='dashed') +
+  geom_text(aes(x = 1:5, pc$eig[1:5,3], label = round(pc$eig[1:5,3], 2)), 
+            vjust = -0.5, color = 'red') +
+  labs(y = "Percentage of explained variance", 
+       title = "Scree Plot with Cumulative Variance Explained")
+
+# Extract eigenvalues
+eigenvalues <- pc$eig
+
+# Apply Kaiser criterion
+optimal_pcs <- sum(eigenvalues[, 1] > 1)
+print(optimal_pcs)
+
+# PC3 is very close, so maybe could be considered.
+
+```
+The optimal number of PCs is 2.
+
+
+# Predict and Evaluate
+```{r pred}
+
+# Predict using the prcomp() model 
+trg <- predict(pca, train)
+trg <- data.frame(trg, target = train[,6])
+
+tst <- predict(pca, test)
+tst <- data.frame(tst, target = test[,6])
+
+```
+ ## Model with all PCs
+```{r all}
+
+# Dependent Var: 2-level --> Binary Logit Regression
+
+# Use general linear model glm()
+# Use first to PCs since they contain majority of the information
+logit_model <- glm(target ~ ., data=trg, family=binomial (link=logit))
+summary(logit_model)
+
+# Training Data
+# Find predicted vals to evaluate model performance
+glm_probs <- predict(logit_model, trg, type="response")
+## Create vector of class predictions 
+## Based on probability of increase > or < 0.5
+dim(trg)
+test_preds <- rep(0, 238) # Save as test_preds for evaluation script
+test_preds[glm_probs > .5] = 1
+
+# Store labels
+test_labels <- trg[,6]
+
+# Evaluation Script
+invisible(source(file = paste0(home, "/scripts/evaluate.R")))
+
+# Store results
+train_results_f <- results_table
+colnames(train_results_f) <- c("Metric", "Full Model, Training")
+
+
+
+# Testing Data
+# Find predicted vals to evaluate model performance
+glm_probs <- predict(logit_model, tst, type="response")
+## Create vector of class predictions 
+## Based on probability of increase > or < 0.5
+dim(tst)
+test_preds <- rep(0, 65) # Save as test_preds for evaluation script
+test_preds[glm_probs > .5] = 1
+
+# Store labels
+test_labels <- tst[,6]
+
+# Evaluation Script
+invisible(source(file = paste0(home, "/scripts/evaluate.R")))
+
+# Store results
+test_results_f <- results_table
+colnames(test_results_f) <- c("Metric", "Full Model, Testing")
+
+```
+ 
+## Model with Reduced the PCs
+```{r reduce}
+
+# Dependent Var: 2-level --> Binary Logit Regression
+
+# Use general linear model glm()
+# Use first to PCs since they contain majority of the information
+logit_model <- glm(target ~ PC1 + PC2, data=trg, family=binomial (link=logit))
+summary(logit_model)
+
+
+
+# Training Data
+# Find predicted vals to evaluate model performance
+glm_probs <- predict(logit_model, trg, type="response")
+## Create vector of class predictions 
+## Based on probability of increase > or < 0.5
+dim(trg)
+test_preds <- rep(0, 238) # Save as test_preds for evaluation script
+test_preds[glm_probs > .5] = 1
+
+# Store labels
+test_labels <- trg[,6]
+
+# Evaluation Script
+invisible(source(file = paste0(home, "/scripts/evaluate.R")))
+
+# Store results
+train_results_r <- results_table
+colnames(train_results_r) <- c("Metric", "Reduced Model, Training")
+
+
+
+# Testing Data
+# Find predicted vals to evaluate model performance
+glm_probs <- predict(logit_model, tst, type="response")
+## Create vector of class predictions 
+## Based on probability of increase > or < 0.5
+dim(tst)
+test_preds <- rep(0, 65) # Save as test_preds for evaluation script
+test_preds[glm_probs > .5] = 1
+
+# Store labels
+test_labels <- tst[,6]
+
+# Evaluation Script
+invisible(source(file = paste0(home, "/scripts/evaluate.R")))
+
+# Store results
+test_results_r <- results_table
+colnames(test_results_r) <- c("Metric", "Reduced Model, Testing")
+
+```
+```{r compare}
+
+# library for joining and table styling 
+p_load(dplyr, kableExtra)
+
+# Combine results tables
+# Set join by
+by <- join_by(Metric)
+
+final_results <- train_results_f %>%
+  inner_join(train_results_r, by) %>%
+  inner_join(test_results_f, by) %>%
+  inner_join(test_results_r, by)
+
+# Format table 
+p_load(kableExtra)
+
+knitr::kable(final_results, type="html", 
+             caption="Model Evaluation Metrics by Model") %>%
+  kable_classic() %>%
+  kable_styling(full_width=F)
+```
+
+
+Reducing the PCs helped reduce model complexity without affecting evaluation metrics significantly. The model including all PCs performed marginally better for the training set, and the reduced model performed slightly better than the full model for the testing set.
+
+
+# Caveats to PCA
+
+PCA assumes relationships are linear. If there are non-linear relationships present, PCA will not capture the relationship appropriately. The objective of PCA is to maximize variance which may not always be the objective of analysis. PCA is sensitive to unscaled data and outliers, so this should always be evaluated thoroughly.
+
+
+# Alternatives to PCA
+
+Factor analysis is similar to PCA but assumes that observed variables are influenced by unobserved factors. Independent component analysis focuses on statistically independent components which is useful in specific cases where independence is of higher interest that correlations. Neural networks can be used for data reduction as well.
+
